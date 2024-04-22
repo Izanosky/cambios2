@@ -19,10 +19,6 @@ int main() {
         fflush(stdout);
         exit(1);
     }
-    else {
-        printf("Libreria cargada\r\n");
-        fflush(stdout);
-    }
 
     //------------------------------------
 
