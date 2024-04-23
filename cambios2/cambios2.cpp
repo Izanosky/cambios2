@@ -24,6 +24,11 @@ int main() {
         fflush(stdout);
     }
 
+    printf("Pulse una tecla para continuar\r\n");
+    fflush(stdout);
+    getchar();
+    exit(1);
+
     //------------------------------------
 
     //FUNCIONES SIN ARGUMENTOS
