@@ -8,9 +8,57 @@ VOID(*ponError) (CHAR*);
 INT(*inicioCambios) (INT, HANDLE, CHAR*);
 INT(*inicioCambiosHijo) (INT, HANDLE, CHAR*);
 
+void fin();
 
-int main() {
+BOOL WINAPI CtrlHandler(DWORD fdwCtrlType) {
+    switch (fdwCtrlType)
+    {
+
+    case CTRL_C_EVENT:
+        fin();
+        return TRUE;
+
+    case CTRL_CLOSE_EVENT:
+        printf("Ctrl-Close event\n\n");
+        return TRUE;
+
+
+    case CTRL_BREAK_EVENT:
+        printf("Ctrl-Break event\n\n");
+        return FALSE;
+
+    case CTRL_LOGOFF_EVENT:
+        printf("Ctrl-Logoff event\n\n");
+        return FALSE;
+
+    case CTRL_SHUTDOWN_EVENT:
+        printf("Ctrl-Shutdown event\n\n");
+        return FALSE;
+
+    default:
+        return FALSE;
+    }
+}
+
+
+int main(int argc, char* argv[]) {
+    int vel;
     
+    if (argc < 2 || argc > 2) {
+        vel = 0;
+        //alarm(20);
+    }
+    else {
+        vel = atoi(argv[1]);
+        if (vel <= 0) {
+            vel = 0;
+            //alarm(20);
+        }
+        else {
+            //alarm(30);
+        }
+    }
+
     //CARGAMOS LIBRERIA
     HINSTANCE lib = LoadLibrary("cambios2.dll");
 
@@ -23,11 +71,6 @@ int main() {
         printf("Libreria cargada\r\n");
         fflush(stdout);
     }
-
-    printf("Pulse una tecla para continuar\r\n");
-    fflush(stdout);
-    getchar();
-    exit(1);
 
     //------------------------------------
 
@@ -89,6 +132,7 @@ int main() {
         exit(1);
     }
 
+    //LIBREAMOS LIBRERIA
     if (!FreeLibrary(lib)) {
         printf("Error al liberar la libreria\r\n");
         fflush(stdout);
@@ -97,4 +141,8 @@ int main() {
 
 
     return 0;
+}
+
+void fin() {
+	
 }
