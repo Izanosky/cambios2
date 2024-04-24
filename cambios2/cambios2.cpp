@@ -3,28 +3,46 @@
 #include <stdlib.h>
 #include "cambios2.h"
 
+//   C:\Users\Usuario\source\repos\cambios2\Debug\cambios2.exe
+
 INT(*aQueGrupo) (INT);
 VOID(*ponError) (CHAR*);
 INT(*inicioCambios) (INT, HANDLE, CHAR*);
 INT(*inicioCambiosHijo) (INT, HANDLE, CHAR*);
 
+void finalizar();
+
 int main(int argc, char* argv[]) {
     int vel;
+    LARGE_INTEGER time;
     
+
+    HANDLE alarma = CreateWaitableTimer(NULL, TRUE, NULL);
+    if (alarma == NULL) {
+        printf("Error al crear la alarma (%d)\n", GetLastError());
+        return 1;
+    }
+
     if (argc < 2 || argc > 2) {
         vel = 0;
-        //alarm(20);
+        time.QuadPart = -200000000LL;
     }
     else {
         vel = atoi(argv[1]);
         if (vel <= 0) {
             vel = 0;
-            //alarm(20);
+            time.QuadPart = -200000000LL;
         }
         else {
-            //alarm(30);
+            time.QuadPart = -300000000LL;
         }
     }
+
+    if (!SetWaitableTimer(alarma, &time, 0, NULL, NULL, 0)) {
+        printf("Error al establecer la alarma (%d)\n", GetLastError());
+        return 2;
+    }
+    
 
     //CARGAMOS LIBRERIA
     HINSTANCE lib = LoadLibrary("cambios2.dll");
@@ -34,10 +52,7 @@ int main(int argc, char* argv[]) {
         fflush(stdout);
         exit(1);
     }
-    else {
-        printf("Libreria cargada\r\n");
-        fflush(stdout);
-    }
+ 
 
     //------------------------------------
 
@@ -99,6 +114,11 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
+    ///////////////////////////////////////////////
+    if (WaitForSingleObject(alarma, INFINITE) != WAIT_OBJECT_0)
+        printf("Error con la alarma (%d)\n", GetLastError());
+    ///////////////////////////////////////////////
+
     //LIBREAMOS LIBRERIA
     if (!FreeLibrary(lib)) {
         printf("Error al liberar la libreria\r\n");
@@ -106,6 +126,10 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-
     return 0;
+}
+
+void finalizar() {
+	printf("Finalizando...\r\n");
+	fflush(stdout);
 }
