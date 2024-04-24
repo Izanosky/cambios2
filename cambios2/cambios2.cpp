@@ -1,6 +1,7 @@
 #include <Windows.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <tchar.h>
 #include "cambios2.h"
 
 //   C:\Users\Usuario\source\repos\cambios2\Debug\cambios2.exe
@@ -10,13 +11,51 @@ VOID(*ponError) (CHAR*);
 INT(*inicioCambios) (INT, HANDLE, CHAR*);
 INT(*inicioCambiosHijo) (INT, HANDLE, CHAR*);
 
-void finalizar();
-
 int main(int argc, char* argv[]) {
     int vel;
     LARGE_INTEGER time;
-    
 
+    //VARIABLES PARA LA CREACIÓN DEL PROCESO HIJO
+    CHAR szPath[MAX_PATH];
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+
+    if (argc == 4) {
+        GetModuleFileName(NULL, szPath, MAX_PATH);
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        ZeroMemory(&pi, sizeof(pi));
+
+        if (!CreateProcess(szPath, argv[3], NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+            printf("Error al crear el hijo (%d)\r\n", GetLastError());
+            fflush(stdout);
+            return 0;
+        }
+
+        printf("Espero\r\n");
+        fflush(stdout);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+        return 0;
+    } 
+    else if (argc == 1 && _tcscmp(argv[0], _T("h")) == 0) {
+        printf("Soy el hijo (%s)\r\n", argv[0]);
+        fflush(stdout);
+        return 0;
+    }
+    else {
+		printf("ERROR\r\n");
+		printf("Ejemplo de uso: (nombre ejecutable) (velocidad) 'p' 'h'\r\n");
+		fflush(stdout);
+		return 1;
+    }
+
+    /*
+    
+    //CREAMOS LA ALARMA
     HANDLE alarma = CreateWaitableTimer(NULL, TRUE, NULL);
     if (alarma == NULL) {
         printf("Error al crear la alarma (%d)\n", GetLastError());
@@ -126,10 +165,5 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-    return 0;
-}
-
-void finalizar() {
-	printf("Finalizando...\r\n");
-	fflush(stdout);
+    return 0; */
 }
