@@ -13,46 +13,69 @@ INT(*inicioCambiosHijo) (INT, HANDLE, CHAR*);
 DWORD WINAPI Zacarias (LPVOID param);
 DWORD WINAPI Alumnos (LPVOID param);
 
+struct global {
+    HANDLE mtxLib;
+    HANDLE mem;
+    LPCH refM;
+    HANDLE alarma;
+	HINSTANCE lib;
+    HANDLE Z;
+    CHAR szPath[MAX_PATH];
+    STARTUPINFO info;
+    PROCESS_INFORMATION pInfo;
+    HANDLE hProcess;
+};
+
+global glob;
+
+void fin();
+
 int main(int argc, char* argv[]) {
     int vel;
     LARGE_INTEGER time;
 
     //VARIABLES PARA LA CREACIÓN DEL PROCESO HIJO
-    CHAR szPath[MAX_PATH];
-    STARTUPINFO info;
-    PROCESS_INFORMATION pInfo;
+    
 
-    if (argc == 4) {
-        int valor;
-        GetModuleFileName(NULL, szPath, MAX_PATH);
-        ZeroMemory(&info, sizeof(info));
-        info.cb = sizeof(info);
-        ZeroMemory(&pInfo, sizeof(pInfo));
+    if (argc == 4) {      
+        int valor, cont = 0;
+        GetModuleFileName(NULL, glob.szPath, MAX_PATH);
+        ZeroMemory(&glob.info, sizeof(glob.info));
+        glob.info.cb = sizeof(glob.info);
+        ZeroMemory(&glob.pInfo, sizeof(glob.pInfo));
+
+		glob.mtxLib = NULL;
+		glob.mem = NULL;
+		glob.refM = NULL;
+		glob.alarma = NULL;
+		glob.lib = NULL;
+		glob.Z = NULL;
+		glob.pInfo.hProcess = NULL;
 
 		//MECANISMOS DE SINCRONIZACION
-		HANDLE mtxLib = CreateMutex(NULL, FALSE, "mtxLib");
-		if (mtxLib == NULL) {
-			printf("Error al crear el mutex (%d)\n", GetLastError());
+		glob.mtxLib = CreateMutex(NULL, FALSE, "mtxLib");
+		if (glob.mtxLib == NULL) {
+            fin();
             exit(1);
 		}
 
 		//CREAMOS LA MEMORIA COMPARTIDA
-        HANDLE mem = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(char)*80 + sizeof(int)*3, "memoria");
-		if (mem == NULL) {
-			printf("Error al crear la memoria compartida (%d)\n", GetLastError());
+        glob.mem = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(char)*80 + sizeof(int)*3 + sizeof(DWORD), "memoria");
+		if (glob.mem == NULL) {
+			fin();
             exit(1);
 		}
 
-		LPCH refM = (LPCH)MapViewOfFile(mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3);
-		if (refM == NULL) {
-			printf("Error al mapear la memoria compartida (%d)\n", GetLastError());
+		glob.refM = (LPCH)MapViewOfFile(glob.mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3 + sizeof(DWORD));
+		if (glob.refM == NULL) {
+			fin();
             exit(1);
 		}
 
 		//CREAMOS LA ALARMA Y /ESTABLECEMOS EL TIEMPO
-        HANDLE alarma = CreateWaitableTimer(NULL, TRUE, NULL);
-        if (alarma == NULL) {
-            printf("Error al crear la alarma (%d)\n", GetLastError());
+        glob.alarma = CreateWaitableTimer(NULL, TRUE, NULL);
+        if (glob.alarma == NULL) {
+            fin();
             exit(1);
         }
 
@@ -65,42 +88,41 @@ int main(int argc, char* argv[]) {
             time.QuadPart = -300000000LL;
         }
 
-        if (!SetWaitableTimer(alarma, &time, 0, NULL, NULL, 0)) {
-            printf("Error al establecer la alarma (%d)\n", GetLastError());
+        if (!SetWaitableTimer(glob.alarma, &time, 0, NULL, NULL, 0)) {
+            fin();
             exit(1);
         }
 
 		//CARGAMOS LA LIBRERIA
-        HINSTANCE lib = LoadLibrary("cambios2.dll");
+        glob.lib = LoadLibrary("cambios2.dll");
 
-        if (lib == NULL) {
-            printf("No se pudo cargar la libreria\r\n");
-            fflush(stdout);
+        if (glob.lib == NULL) {
+            fin();
             exit(1);
         } 
 
         //FUNCIONES SIN ARGUMENTOS
-        FARPROC finCambios = GetProcAddress(lib, "finCambios");
+        FARPROC finCambios = GetProcAddress(glob.lib, "finCambios");
         if (finCambios == NULL) {
-            printf("No se ha podido cargar la funcion\r\n");
-            fflush(stdout);
+            fin();
             exit(1);
         }
 
         //FUNCIONES CON ARGUMENTOS
-        inicioCambios = (INT(*) (INT, HANDLE, CHAR*)) GetProcAddress(lib, "inicioCambios");
+        inicioCambios = (INT(*) (INT, HANDLE, CHAR*)) GetProcAddress(glob.lib, "inicioCambios");
         if (inicioCambios == NULL) {
-            printf("No se ha podido cargar la funcion\r\n");
-            fflush(stdout);
+            fin();
             exit(1);
         }   
 
 		//COPIAMOS LA VELOCIDAD A LA MEMORIA COMPARTIDA
-		refM = refM + sizeof(char) * 80 + sizeof(int)*2;
-		CopyMemory(refM, &vel, sizeof(vel));
-        refM = refM - sizeof(char) * 80 - sizeof(int) * 2;
+		glob.refM = glob.refM + sizeof(char) * 80 + sizeof(int);
+        CopyMemory(glob.refM, &cont, sizeof(cont));
+        glob.refM = glob.refM + sizeof(int);
+		CopyMemory(glob.refM, &vel, sizeof(vel));
+        glob.refM = glob.refM - sizeof(char) * 80 - sizeof(int) * 2;
 
-		valor = inicioCambios(vel, mtxLib, refM);
+		valor = inicioCambios(vel, glob.mtxLib, glob.refM);
 		if (valor == -1) {
 			printf("Error al iniciar los cambios\r\n");
 			fflush(stdout);
@@ -108,60 +130,61 @@ int main(int argc, char* argv[]) {
         }
 
         //CREAMOS UN HILO
-		HANDLE Z = CreateThread(NULL, 0, Zacarias, NULL, 0, NULL);
-        if (Z == NULL) {
-            printf("Error al crear el hilo (%d)\r\n", GetLastError());
-            fflush(stdout);
+        DWORD ZID;
+		glob.Z = CreateThread(NULL, 0, Zacarias, NULL, 0, &ZID);
+        if (glob.Z == NULL) {
+            fin();
             exit(1);
         }
+
+        glob.refM = glob.refM + sizeof(char) * 80 + sizeof(int) * 3;
+        CopyMemory(glob.refM, &ZID, sizeof(ZID));
+        glob.refM = glob.refM - sizeof(char) * 80 - sizeof(int) * 3;
 
         //CREAMOS EL PROCESO HIJO
-        if (!CreateProcess(szPath, argv[3], NULL, NULL, FALSE, 0, NULL, NULL, &info, &pInfo)) {
-            printf("Error al crear el hijo (%d)\r\n", GetLastError());
-            fflush(stdout);
+        if (!CreateProcess(glob.szPath, argv[3], NULL, NULL, FALSE, 0, NULL, NULL, &glob.info, &glob.pInfo)) {
+            fin();
             exit(1);
         }
 
-        ///////////////////////////////////////////////
-        if (WaitForSingleObject(alarma, INFINITE) != WAIT_OBJECT_0)
-            printf("Error con la alarma (%d)\n", GetLastError());
-        ///////////////////////////////////////////////
+		glob.hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, glob.pInfo.dwProcessId);
+		if (glob.hProcess == NULL) {
+            PostThreadMessage(ZID, 1000, NULL, NULL);
+            PostThreadMessage(glob.pInfo.dwProcessId, 1000, NULL, NULL);
 
-        //ESPERAMOS A QUE EL PROCESO HIJO TERMINE
-        WaitForSingleObject(Z, INFINITE);
-		CloseHandle(Z);
+            fin();
+			exit(1);
+		}
 
-        WaitForSingleObject(pInfo.hProcess, INFINITE);
-        CloseHandle(pInfo.hThread);
-        CloseHandle(pInfo.hProcess);
+        WaitForSingleObject(glob.alarma, INFINITE);
 
-        //LIBREAMOS LIBRERIA
-        FreeLibrary(lib);	   
+		PostThreadMessage(ZID, 1000, NULL, NULL);
+        PostThreadMessage(GetProcessId(glob.hProcess), 1000, NULL, NULL);
 
-		//LIBERAMOS MEMORIA COMPARTIDA
-		UnmapViewOfFile(refM);
-		CloseHandle(mem);
-
-		//LIBERAMOS EL MUTEX
-		CloseHandle(mtxLib);
+        fin();
 
         return 0;
 	} //----------------------------------------------------------------------------------- FUNCION DEL PROCESO HIJO
     else if (argc == 1 && _tcscmp(argv[0], _T("h")) == 0) {
         int velH, val;
+		HANDLE mem = NULL, mtxLib = NULL, mutexHijos = NULL;
+		LPCH refM = NULL;
+		HINSTANCE lib = NULL;
+        
+        MSG msg;
+        PeekMessage(&msg, NULL, 1000, 1000, PM_NOREMOVE);
         
 		//INICIAMOS LA MEMORIA COMPARTIDA
-		HANDLE mem = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, "memoria");
+		mem = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, "memoria");
 		if (mem == NULL) {
-			printf("Error al abrir la memoria compartida (%d)\n", GetLastError());
-			fflush(stdout);
             exit(1);
 		}
 
-		LPCH refM = (LPCH)MapViewOfFile(mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3);
+		refM = (LPCH)MapViewOfFile(mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3 + +sizeof(DWORD));
 		if (refM == NULL) {
-			printf("Error al mapear la memoria compartida (%d)\n", GetLastError());
-			fflush(stdout);
+            if (mem != NULL) {
+				CloseHandle(mem);
+            }
             exit(1);
 		}
 
@@ -170,69 +193,176 @@ int main(int argc, char* argv[]) {
 		refM = refM - sizeof(char) * 80 - sizeof(int) * 2;
 
         //ABRIMOS EL MUTEX PARA LA LIBRERIA
-		HANDLE mtxLib = OpenMutex(MUTEX_ALL_ACCESS, FALSE, "mtxLib");
+		mtxLib = OpenMutex(MUTEX_ALL_ACCESS, FALSE, "mtxLib");
 		if (mtxLib == NULL) {
-			printf("Error al abrir el mutex (%d)\n", GetLastError());
-			fflush(stdout);
+            if (refM != NULL) {
+                UnmapViewOfFile(refM);
+            }
+            if (mem != NULL) {
+                CloseHandle(mem);
+            }
 			exit(1);
 		}
 
 		//MECANISMO DE SINCRONIZACION
-		HANDLE mutexHijos = CreateMutex(NULL, FALSE, "mtxHijos");
+		mutexHijos = CreateMutex(NULL, FALSE, "mtxHijos");
 		if (mutexHijos == NULL) {
-			printf("Error al crear el mutex (%d)\n", GetLastError());
-			fflush(stdout);
+            if (refM != NULL) {
+                UnmapViewOfFile(refM);
+            }
+            if (mem != NULL) {
+                CloseHandle(mem);
+            }
+			if (mtxLib != NULL) {
+				CloseHandle(mtxLib);
+			}
 			exit(1);
 		}
 
 		//CARGAMOS LA LIBRERIA
-        HINSTANCE lib = LoadLibrary("cambios2.dll");
+        lib = LoadLibrary("cambios2.dll");
 
         if (lib == NULL) {
-            printf("No se pudo cargar la libreria\r\n");
-            fflush(stdout);
+            if (refM != NULL) {
+                UnmapViewOfFile(refM);
+            }
+            if (mem != NULL) {
+                CloseHandle(mem);
+            }
+            if (mtxLib != NULL) {
+                CloseHandle(mtxLib);
+            }
+			if (mutexHijos != NULL) {
+				CloseHandle(mutexHijos);
+			}
             exit(1);
         }
 
 		//FUNCIONES SIN ARGUMENTOS
         FARPROC fnCambios2 = GetProcAddress(lib, "fncambios2");
         if (fnCambios2 == NULL) {
-            printf("No se ha podido cargar la funcion\r\n");
-            fflush(stdout);
+            if (refM != NULL) {
+                UnmapViewOfFile(refM);
+            }
+            if (mem != NULL) {
+                CloseHandle(mem);
+            }
+            if (mtxLib != NULL) {
+                CloseHandle(mtxLib);
+            }
+            if (mutexHijos != NULL) {
+                CloseHandle(mutexHijos);
+            }
+			if (lib != NULL) {
+				FreeLibrary(lib);
+			}
             exit(1);
         }
 
 		//FUNCIONES CON ARGUMENTOS
         inicioCambiosHijo = (INT(*) (INT, HANDLE, CHAR*)) GetProcAddress(lib, "inicioCambiosHijo");
         if (inicioCambiosHijo == NULL) {
-            printf("No se ha podido cargar la funcion\r\n");
-            fflush(stdout);
+            if (refM != NULL) {
+                UnmapViewOfFile(refM);
+            }
+            if (mem != NULL) {
+                CloseHandle(mem);
+            }
+            if (mtxLib != NULL) {
+                CloseHandle(mtxLib);
+            }
+            if (mutexHijos != NULL) {
+                CloseHandle(mutexHijos);
+            }
+            if (lib != NULL) {
+                FreeLibrary(lib);
+            }
             exit(1);
         }
 
 		val = inicioCambiosHijo(velH, mtxLib, refM);
+        if (val == -1) {
+            if (refM != NULL) {
+                UnmapViewOfFile(refM);
+            }
+            if (mem != NULL) {
+                CloseHandle(mem);
+            }
+            if (mtxLib != NULL) {
+                CloseHandle(mtxLib);
+            }
+            if (mutexHijos != NULL) {
+                CloseHandle(mutexHijos);
+            }
+            if (lib != NULL) {
+                FreeLibrary(lib);
+            }
+            exit(1);
+        }
 
         HANDLE alumnos[32];
+        for (int j = 0; j < 32; j++) {
+			alumnos[j] = NULL;
+        }
+
+		DWORD alumnosID[32];
 
         for (int i = 0; i < 32; i++) {		
-			alumnos[i] = CreateThread(NULL, 0, Alumnos, LPVOID(i), 0, NULL);
+			alumnos[i] = CreateThread(NULL, 0, Alumnos, LPVOID(i), 0, &alumnosID[i]);
 			if (alumnos[i] == NULL) {
-				printf("Error al crear el hilo (%d)\r\n", GetLastError());
-				fflush(stdout);
+                if (refM != NULL) {
+                    UnmapViewOfFile(refM);
+                }
+                if (mem != NULL) {
+                    CloseHandle(mem);
+                }
+                if (mtxLib != NULL) {
+                    CloseHandle(mtxLib);
+                }
+                if (mutexHijos != NULL) {
+                    CloseHandle(mutexHijos);
+                }
+                if (lib != NULL) {
+                    FreeLibrary(lib);
+                }
+                for (int j = 0; j < 32; j++) {
+					if (alumnos[j] != NULL) {
+						CloseHandle(alumnos[j]);
+					}
+                }
 				exit(1);
 			}
         }
 
+        if (GetMessage(&msg, NULL, 1000, 1000) > 0) {
+			printf("Mensaje recibido, soy el proceso hijo\r\n");
+            for (int j = 0; j < 32; j++) {
+				PostThreadMessage(alumnosID[j], 1000, NULL, NULL);
+            }
+        }
+
 		WaitForMultipleObjects(32, alumnos, TRUE, INFINITE);
-		for (int i = 0; i < 32; i++) {
-			CloseHandle(alumnos[i]);
-		}
 
-        FreeLibrary(lib);
-
-		//LIBERAMOS MEMORIA COMPARTIDA
-		UnmapViewOfFile(refM);
-		CloseHandle(mem);
+        if (refM != NULL) {
+            UnmapViewOfFile(refM);
+        }
+        if (mem != NULL) {
+            CloseHandle(mem);
+        }
+        if (mtxLib != NULL) {
+            CloseHandle(mtxLib);
+        }
+        if (mutexHijos != NULL) {
+            CloseHandle(mutexHijos);
+        }
+        if (lib != NULL) {
+            FreeLibrary(lib);
+        }
+        for (int j = 0; j < 32; j++) {
+            if (alumnos[j] != NULL) {
+                CloseHandle(alumnos[j]);
+            }
+        }
 
         return 0;
     }
@@ -248,63 +378,92 @@ DWORD WINAPI Alumnos (LPVOID param) {
     int posi = (int)param;
     char identificador, grupoA;
     char vacio = ' ';
+	DWORD ZID;
+	HANDLE mutexHijos = NULL, mem = NULL;
+	LPCH refM = NULL;
+	HINSTANCE lib = NULL;
 
-    char grupo[] = {'A', 'B', 'C', 'D', 'a', 'b', 'c', 'd',
-                    'E', 'F', 'G', 'H', 'e', 'f', 'g', 'h',
-                    'I', 'J', 'L', 'M', 'i', 'j', 'l', 'm',
-                    'N', 'O', 'P', 'R', 'n', 'o', 'p', 'r' };
+    MSG msg;
+    PeekMessage(&msg, NULL, 1000, 1000, PM_NOREMOVE);
 
-	HANDLE mutexHijos = OpenMutex(MUTEX_ALL_ACCESS, FALSE, "mtxHijos");
-    if (mutexHijos == NULL) {
-		printf("Error al abrir el mutex (%d)\n", GetLastError());
-		fflush(stdout);
+    char grupo[] = { 'A', 'B', 'C', 'D', 'a', 'b', 'c', 'd',
+                     'E', 'F', 'G', 'H', 'e', 'f', 'g', 'h',
+                     'I', 'J', 'L', 'M', 'i', 'j', 'l', 'm',
+                     'N', 'O', 'P', 'R', 'n', 'o', 'p', 'r' };
+
+	mutexHijos = OpenMutex(MUTEX_ALL_ACCESS, FALSE, "mtxHijos");
+    if (mutexHijos == NULL) {    
 		exit(1);
     }
 
     //CARGAMOS LA LIBRERIA
-    HINSTANCE lib = LoadLibrary("cambios2.dll");
+    lib = LoadLibrary("cambios2.dll");
 
     if (lib == NULL) {
-        printf("No se pudo cargar la libreria\r\n");
-        fflush(stdout);
+		if (mutexHijos != NULL) {
+			CloseHandle(mutexHijos);
+		}
         exit(1);
     }
 
 	//FUNCIONES SIN ARGUMENTOS
     FARPROC incrementarCuenta = GetProcAddress(lib, "incrementarCuenta");
     if (incrementarCuenta == NULL) {
-        printf("No se ha podido cargar la funcion\r\n");
-        fflush(stdout);
+		if (mutexHijos != NULL) {
+			CloseHandle(mutexHijos);
+		}
+		if (lib != NULL) {
+			FreeLibrary(lib);
+		}
         exit(1);
     }
 
     FARPROC refrescar = GetProcAddress(lib, "refrescar");
     if (refrescar == NULL) {
-        printf("No se ha podido cargar la funcion\r\n");
-        fflush(stdout);
+        if (mutexHijos != NULL) {
+            CloseHandle(mutexHijos);
+        }
+        if (lib != NULL) {
+            FreeLibrary(lib);
+        }
         exit(1);
     }
 
 	//FUNCIONES CON ARGUMENTOS
     aQueGrupo = (INT(*) (INT)) GetProcAddress(lib, "aQuEGrupo");
     if (aQueGrupo == NULL) {
-        printf("No se ha podido cargar la funcion\r\n");
-        fflush(stdout);
+        if (mutexHijos != NULL) {
+            CloseHandle(mutexHijos);
+        }
+        if (lib != NULL) {
+            FreeLibrary(lib);
+        }
         exit(1);
     }
 
     //INICIAMOS LA MEMORIA COMPARTIDA
-    HANDLE mem = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, "memoria");
+    mem = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, "memoria");
     if (mem == NULL) {
-        printf("Error al abrir la memoria compartida (%d)\n", GetLastError());
-        fflush(stdout);
+        if (mutexHijos != NULL) {
+            CloseHandle(mutexHijos);
+        }
+        if (lib != NULL) {
+            FreeLibrary(lib);
+        }
         exit(1);
     }
 
-    LPCH refM = (LPCH)MapViewOfFile(mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3);
+    refM = (LPCH)MapViewOfFile(mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3 + sizeof(DWORD));
     if (refM == NULL) {
-        printf("Error al mapear la memoria compartida (%d)\n", GetLastError());
-        fflush(stdout);
+        if (mutexHijos != NULL) {
+            CloseHandle(mutexHijos);
+        }
+        if (lib != NULL) {
+            FreeLibrary(lib);
+        }
+		if (mem != NULL) {
+			CloseHandle(mem);
+		}
         exit(1);
     }
 
@@ -314,7 +473,10 @@ DWORD WINAPI Alumnos (LPVOID param) {
 		identificador = grupo[posi];
         grupoA = 1;
 
-		printf("Alumno %c en grupo %d(%d)\n", identificador, grupoA, posi);
+        //ALAMCENAMOS EL ID DE ZACACRIAS
+		refM = refM + sizeof(char) * 80 + sizeof(int) * 3;
+		ZID = *refM;
+		refM = refM - sizeof(char) * 80 - sizeof(int) * 3;
 
         refM = refM + posi * 2;
 		CopyMemory(refM, &identificador, sizeof(identificador));
@@ -340,7 +502,10 @@ DWORD WINAPI Alumnos (LPVOID param) {
         posi = posi + 2;
         grupoA = 2;
 
-        printf("Alumno %c en grupo %d(%d)\n", identificador, grupoA, posi);
+        //ALAMCENAMOS EL ID DE ZACACRIAS
+        refM = refM + sizeof(char) * 80 + sizeof(int) * 3;
+        ZID = *refM;
+        refM = refM - sizeof(char) * 80 - sizeof(int) * 3;
 
         refM = refM + posi * 2;
         CopyMemory(refM, &identificador, sizeof(identificador));
@@ -366,7 +531,10 @@ DWORD WINAPI Alumnos (LPVOID param) {
         posi = posi + 4;
         grupoA = 3;
 
-        printf("Alumno %c en grupo %d(%d)\n", identificador, grupoA, posi);
+        //ALAMCENAMOS EL ID DE ZACACRIAS
+        refM = refM + sizeof(char) * 80 + sizeof(int) * 3;
+        ZID = *refM;
+        refM = refM - sizeof(char) * 80 - sizeof(int) * 3;
 
         refM = refM + posi * 2;
         CopyMemory(refM, &identificador, sizeof(identificador));
@@ -390,8 +558,11 @@ DWORD WINAPI Alumnos (LPVOID param) {
 		identificador = grupo[posi];
         posi = posi + 6;
         grupoA = 4;
-
-        printf("Alumno %c en grupo %d(%d)\n", identificador, grupoA, posi);
+        
+		//ALAMCENAMOS EL ID DE ZACACRIAS
+        refM = refM + sizeof(char) * 80 + sizeof(int) * 3;
+        ZID = *refM;
+        refM = refM - sizeof(char) * 80 - sizeof(int) * 3;
 
         refM = refM + posi * 2;
         CopyMemory(refM, &identificador, sizeof(identificador));
@@ -413,13 +584,60 @@ DWORD WINAPI Alumnos (LPVOID param) {
         ReleaseMutex(mutexHijos);
 	} 
 
-	UnmapViewOfFile(refM);
-	CloseHandle(mem);
+    while (TRUE) {
+        if (GetMessage(&msg, NULL, 1000, 1000) > 0) {
+			printf("Mensaje recibido, me muero\r\n");
 
-    return 0;
+            FreeLibrary(lib);
+
+            UnmapViewOfFile(refM);
+            CloseHandle(mem);
+
+			CloseHandle(mutexHijos);
+
+			return 0;
+        }
+    }
 }
 
 DWORD WINAPI Zacarias(LPVOID param) {
+    MSG msg;
+	PeekMessage(&msg, NULL, 1000, 1000, PM_NOREMOVE);
 
-    return 0;
+    while (TRUE) {
+        if (GetMessage(&msg, NULL, 1000, 1000) > 0) {
+            printf("Mensaje recibido, me muero\r\n");
+            return 0;
+        }
+    }
+}
+
+void fin() {
+    if (glob.pInfo.hProcess != NULL) {
+        WaitForSingleObject(glob.pInfo.hProcess, INFINITE);
+        CloseHandle(glob.pInfo.hThread);
+        CloseHandle(glob.pInfo.hProcess);
+    }
+    if (glob.Z != NULL) {
+        WaitForSingleObject(glob.Z, INFINITE);
+        CloseHandle(glob.Z);
+    }
+    if (glob.mtxLib != NULL) {
+		CloseHandle(glob.mtxLib);
+    }
+    if (glob.mem != NULL) {
+        CloseHandle(glob.mem);
+    }
+	if (glob.refM != NULL) {
+		UnmapViewOfFile(glob.refM);
+	}
+	if (glob.alarma != NULL) {
+		CloseHandle(glob.alarma);
+	}
+	if (glob.lib != NULL) {
+		FreeLibrary(glob.lib);
+	}
+	if (glob.hProcess != NULL) {
+		CloseHandle(glob.hProcess);
+	}
 }
