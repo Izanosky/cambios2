@@ -30,42 +30,45 @@ global glob;
 void fin();
 
 int main(int argc, char* argv[]) {
-    int vel;
+    int vel, valor, cont = 0;
     LARGE_INTEGER time;
+
+    glob.mtxLib = NULL;
+    glob.mem = NULL;
+    glob.refM = NULL;
+    glob.alarma = NULL;
+    glob.lib = NULL;
+    glob.Z = NULL;
+    glob.SHijos = NULL;
+
     if (argc == 2) {
-        int valor, cont = 0;
-
-        glob.mtxLib = NULL;
-        glob.mem = NULL;
-        glob.refM = NULL;
-        glob.alarma = NULL;
-        glob.lib = NULL;
-        glob.Z = NULL;
-        glob.SHijos = NULL;
-
         //MECANISMOS DE SINCRONIZACION
         glob.mtxLib = CreateMutex(NULL, FALSE, "mtxLib");
         if (glob.mtxLib == NULL) {
+			printf("Error al crear el mutex\r\n");
             fin();
             exit(1);
         }
 
         glob.SHijos = CreateSemaphore(NULL, 0, 1, "SHijos");
         if (glob.SHijos == NULL) {
+			printf("Error al crear el semaforo\r\n");
             fin();
             exit(1);
         }
 
         glob.SZ = CreateSemaphore(NULL, 0, 1, "SZ");
         if (glob.SZ == NULL) {
+			printf("Error al crear el semaforo\r\n");
             fin();
             exit(1);
         }
 
-		glob.cambios = CreateSemaphore(NULL, 1, 1, "cambios");
+        glob.cambios = CreateSemaphore(NULL, 1, 1, "cambios");
         if (glob.cambios == NULL) {
+			printf("Error al crear el semaforo\r\n");
             fin();
-			exit(1);
+            exit(1);
         }
 
         //CREAMOS LA MEMORIA COMPARTIDA
@@ -117,7 +120,6 @@ int main(int argc, char* argv[]) {
             exit(1);
         }
 
-        //METEMOS LA FUNCION REFRESCAR
         FARPROC refrescar = GetProcAddress(glob.lib, "refrescar");
         if (refrescar == NULL) {
             fin();
@@ -131,12 +133,6 @@ int main(int argc, char* argv[]) {
             exit(1);
         }
 
-		pon_error = (VOID(*) (CHAR*)) GetProcAddress(glob.lib, "pon_error");
-		if (pon_error == NULL) {
-			fin();
-			exit(1);
-		}
-
         valor = inicioCambios(vel, glob.mtxLib, glob.refM);
         if (valor == -1) {
             printf("Error al iniciar los cambios\r\n");
@@ -145,11 +141,11 @@ int main(int argc, char* argv[]) {
             exit(1);
         }
 
-        //COPIAMOS LA VELOCIDAD A LA MEMORIA COMPARTIDA accediendo como una matriz
+		//COPIAMOS LA VELOCIDAD A LA MEMORIA COMPARTIDA Y PONEMOS EL CONTADOR A 0
         *((int*)&(glob.refM[84])) = 0;
         *((int*)&(glob.refM[88])) = vel;
         refrescar();
-         
+
         //CREAMOS UN HILO
         DWORD ZID;
         glob.Z = CreateThread(NULL, 0, Zacarias, NULL, 0, &ZID);
@@ -158,7 +154,6 @@ int main(int argc, char* argv[]) {
             exit(1);
         }
 
-        //ESPERAMOS A QUE ZACARIAS SE HAYA CREADO
         WaitForSingleObject(glob.SZ, INFINITE);
         *((DWORD*)&(glob.refM[92])) = ZID;
         refrescar();
@@ -173,31 +168,30 @@ int main(int argc, char* argv[]) {
             WaitForSingleObject(glob.SHijos, INFINITE);
         }
 
-		ReleaseSemaphore(glob.SHijos, 1, NULL);
+        ReleaseSemaphore(glob.SHijos, 1, NULL);
 
         WaitForSingleObject(glob.alarma, INFINITE);
-
-		WaitForSingleObject(glob.cambios, INFINITE);
+        WaitForSingleObject(glob.cambios, INFINITE);
 
         PostThreadMessage(ZID, 1000, NULL, NULL);
-        
-        for (int j = 0; j < 32; j++) {		
+
+        for (int j = 0; j < 32; j++) {
             PostThreadMessage(alumnosID[j], 1000, NULL, NULL);
         }
 
         WaitForSingleObject(glob.Z, INFINITE);
         WaitForMultipleObjects(32, glob.alumnos, TRUE, INFINITE);
-        
-		valor = finCambios();
-		if (valor == -1) {
-			printf("Error al finalizar los cambios\r\n");
-			fflush(stdout);
-			fin();
-			exit(1);
-		}
+
+        valor = finCambios();
+        if (valor == -1) {
+            printf("Error al finalizar los cambios\r\n");
+            fflush(stdout);
+            fin();
+            exit(1);
+        }
 
         fin();
-  
+
         return 0;
     }
     else {
@@ -206,40 +200,115 @@ int main(int argc, char* argv[]) {
         fflush(stdout);
         return 1;
     }
+
+    return 0;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
+DWORD WINAPI Zacarias(LPVOID param) {
+    MSG msg1, msg2;
+    HANDLE semZ = NULL, cambios = NULL;
+    int tipo1, tipo2, grupos1, grupos2;
+    DWORD pid1, pid2, waitResult;
+    int gC1, gA1, gC2, gA2;
+
+    PeekMessage(&msg1, NULL, 1000, 1050, PM_REMOVE);
+
+    semZ = OpenSemaphore(SEMAPHORE_ALL_ACCESS, FALSE, "SZ");
+    if (semZ == NULL) {
+        exit(1);
+    }
+
+    cambios = OpenSemaphore(SEMAPHORE_ALL_ACCESS, FALSE, "cambios");
+    if (cambios == NULL) {
+        CloseHandle(semZ);
+        exit(1);
+    }
+
+    ReleaseSemaphore(semZ, 1, NULL);
+
+    for (int i = 0; i < 32; i++) {
+        GetMessage(&msg1, NULL, 1050, 1050);
+    }
+
+    while (TRUE) {
+        //WaitMessage();
+        if (PeekMessage(&msg1, NULL, 1000, 1000, PM_REMOVE)) {
+            if (semZ != NULL) {
+                CloseHandle(semZ);
+            }
+            if (cambios != NULL) {
+                CloseHandle(cambios);
+            }
+            exit(0);
+        }
+        else if (PeekMessage(&msg1, NULL, 1010, 1050, PM_REMOVE)) {
+            grupos1 = msg1.wParam;
+            pid1 = msg1.lParam;
+            gA1 = grupos1 / 10;
+            gC1 = grupos1 % 10;
+            tipo1 = 1000 + gC1 * 10 + gA1;
+            if (PeekMessage(&msg2, NULL, tipo1, tipo1, PM_REMOVE)) {
+                waitResult = WaitForSingleObject(cambios, 0L);
+                switch (waitResult){
+                case WAIT_OBJECT_0:
+                    grupos2 = msg2.wParam;
+                    pid2 = msg2.lParam;
+                    gA2 = grupos2 / 10;
+                    gC2 = grupos2 % 10;
+
+                    tipo1 = 1100 + gC1 * 10 + gA1;
+                    tipo2 = 1100 + gC2 * 10 + gA2;
+
+                    PostThreadMessage(pid1, tipo1, WPARAM(pid2), LPARAM(1));
+                    PostThreadMessage(pid2, tipo2, WPARAM(pid1), LPARAM(1));
+
+                    for (int i = 0; i < 2; i++) {
+                        GetMessage(&msg1, NULL, 1050, 1050);
+                    }
+                    ReleaseSemaphore(cambios, 1, NULL);
+                    break;
+                case WAIT_TIMEOUT:
+                    if (PeekMessage(&msg1, NULL, 1000, 1000, PM_REMOVE)) {
+                        if (semZ != NULL) {
+                            CloseHandle(semZ);
+                        }
+                        if (cambios != NULL) {
+                            CloseHandle(cambios);
+                        }
+                        exit(0);
+                    }
+                }             
+            }
+            else {
+                gA1 = grupos1 / 10;
+                gC1 = grupos1 % 10;
+                tipo1 = 1100 + gC1 * 10 + gA1;
+                PostThreadMessage(pid1, tipo1, NULL, LPARAM(0));
+            }
+        }
+    }
+
+    return 0;
+}
 
 DWORD WINAPI Alumnos(LPVOID param) {
-    int posi = (int)param, val, velH, grupoC, tipo, aux;
-    char identificador, grupoA;
-    char vacio = ' ';
     DWORD ZID;
+    int posi = (int)param, val, velH, grupoC, tipo, aux;
+    char identificador, grupoA, vacio = ' ';
     HANDLE SHijos = NULL, mem = NULL, mtxLib = NULL;
     LPCH refM = NULL;
     HINSTANCE lib = NULL;
-
     MSG msg;
-    PeekMessage(&msg, NULL, 1000, 2000, PM_NOREMOVE);
-
     char grupo[] = { 'A', 'B', 'C', 'D', 'a', 'b', 'c', 'd',
                      'E', 'F', 'G', 'H', 'e', 'f', 'g', 'h',
                      'I', 'J', 'L', 'M', 'i', 'j', 'l', 'm',
                      'N', 'O', 'P', 'R', 'n', 'o', 'p', 'r' };
 
+    PeekMessage(&msg, NULL, 1000, 2000, PM_NOREMOVE);
 
     //ABRIMOS EL SEMAFORO
     SHijos = OpenSemaphore(SEMAPHORE_ALL_ACCESS, FALSE, "SHijos");
     if (SHijos == NULL) {
-        exit(1);
-    }
-
-    //ABRIMOS LA LIBRERIA
-    lib = LoadLibrary("cambios2.dll");
-    if (lib == NULL) {
-		if (SHijos != NULL) {
-			CloseHandle(SHijos);
-		}
         exit(1);
     }
 
@@ -262,6 +331,15 @@ DWORD WINAPI Alumnos(LPVOID param) {
         if (mem != NULL) {
             CloseHandle(mem);
         }
+        if (SHijos != NULL) {
+            CloseHandle(SHijos);
+        }
+        exit(1);
+    }
+
+    //ABRIMOS LA LIBRERIA
+    lib = LoadLibrary("cambios2.dll");
+    if (lib == NULL) {
         if (SHijos != NULL) {
             CloseHandle(SHijos);
         }
@@ -321,7 +399,7 @@ DWORD WINAPI Alumnos(LPVOID param) {
         exit(1);
     }
 
-	aQueGrupo = (INT(*) (INT)) GetProcAddress(lib, "aQuEGrupo");
+    aQueGrupo = (INT(*) (INT)) GetProcAddress(lib, "aQuEGrupo");
     if (aQueGrupo == NULL) {
         if (lib != NULL) {
             FreeLibrary(lib);
@@ -363,24 +441,24 @@ DWORD WINAPI Alumnos(LPVOID param) {
     ZID = *((DWORD*)&(glob.refM[92]));
 
     val = inicioCambiosHijo(velH, mtxLib, refM);
-	if (val == -1) {
-		if (lib != NULL) {
-			FreeLibrary(lib);
-		}
-		if (refM != NULL) {
-			UnmapViewOfFile(refM);
-		}
-		if (mem != NULL) {
-			CloseHandle(mem);
-		}
-		if (SHijos != NULL) {
-			CloseHandle(SHijos);
-		}
-		if (mtxLib != NULL) {
-			CloseHandle(mtxLib);
-		}
-		exit(1);
-	}
+    if (val == -1) {
+        if (lib != NULL) {
+            FreeLibrary(lib);
+        }
+        if (refM != NULL) {
+            UnmapViewOfFile(refM);
+        }
+        if (mem != NULL) {
+            CloseHandle(mem);
+        }
+        if (SHijos != NULL) {
+            CloseHandle(SHijos);
+        }
+        if (mtxLib != NULL) {
+            CloseHandle(mtxLib);
+        }
+        exit(1);
+    }
 
     //ASIGNACION INICIAL
     if (posi < 8) {
@@ -483,8 +561,8 @@ DWORD WINAPI Alumnos(LPVOID param) {
     while (TRUE) {
         grupoC = aQueGrupo((int)grupoA);
         if (grupoC != grupoA) {
-			tipo = 1000 + grupoA * 10 + grupoC;
-			PostThreadMessage(ZID, tipo, WPARAM(grupoA*10+grupoC), LPARAM(GetCurrentThreadId()));  
+            tipo = 1000 + grupoA * 10 + grupoC;
+            PostThreadMessage(ZID, tipo, WPARAM(grupoA * 10 + grupoC), LPARAM(GetCurrentThreadId()));
 
             //ESPERAMOS LA CONFIRMACION
             WaitMessage();
@@ -492,33 +570,53 @@ DWORD WINAPI Alumnos(LPVOID param) {
                 if (msg.lParam == 1) {
                     //COMPROBACION PARA QUE AMBOS PROCESOS VAYAN JUNTOS
                     PostThreadMessage(msg.wParam, 1150, NULL, NULL);
-                    GetMessage(&msg, NULL, 1150, 1150);
+                    if (GetMessage(&msg, NULL, 1150, 1150) > 0){
+                        WaitForSingleObject(SHijos, INFINITE);
+                        for (int i = 10 * (grupoC - 1); i < 10 * grupoC; i++) {
+                            if (refM[i * 2] == 32) {
+                                refM[posi * 2] = 32;
 
-                    WaitForSingleObject(SHijos, INFINITE);
-                    for (int i = 10 * (grupoC - 1); i < 10 * grupoC; i++) {
-                        if (refM[i*2] == 32) {
-                            refM[posi*2] = 32;
-                            
-							refM[i * 2] = identificador;
-							refM[i * 2 + 1] = grupoC;
+                                refM[i * 2] = identificador;
+                                refM[i * 2 + 1] = grupoC;
 
-                            posi = i;
+                                posi = i;
 
-                            grupoA = grupoC;
+                                grupoA = grupoC;
 
-                            incrementarCuenta();
+                                incrementarCuenta();
 
-                            aux = *((int*)&(glob.refM[84]));
-                            aux += 1;
-                            *((int*)&(glob.refM[84])) = aux;
+                                aux = *((int*)&(glob.refM[84]));
+                                aux += 1;
+                                *((int*)&(glob.refM[84])) = aux;
 
-                            refrescar();
-                            break;
+                                refrescar();
+                                break;
+                            }
+                        }
+                        ReleaseSemaphore(SHijos, 1, NULL);
+
+                        PostThreadMessage(ZID, 1050, NULL, NULL);
+
+                        if (PeekMessage(&msg, NULL, 1000, 1000, PM_REMOVE)) {
+                            //CERRAMOS TODO
+                            if (lib != NULL) {
+                                FreeLibrary(lib);
+                            }
+                            if (refM != NULL) {
+                                UnmapViewOfFile(refM);
+                            }
+                            if (mem != NULL) {
+                                CloseHandle(mem);
+                            }
+                            if (SHijos != NULL) {
+                                CloseHandle(SHijos);
+                            }
+                            if (mtxLib != NULL) {
+                                CloseHandle(mtxLib);
+                            }
+                            return 0;
                         }
                     }
-                    ReleaseSemaphore(SHijos, 1, NULL);
-
-                    PostThreadMessage(ZID, 1050, NULL, NULL);
                 }
             }
             else if (PeekMessage(&msg, NULL, 1000, 1000, PM_REMOVE)) {
@@ -540,82 +638,11 @@ DWORD WINAPI Alumnos(LPVOID param) {
                 }
                 return 0;
             }
-			
-		}
-    }
-}
 
-DWORD WINAPI Zacarias(LPVOID param) {
-    MSG msg1, msg2;
-    HANDLE semZ = NULL, cambios = NULL;
-	int tipo1, tipo2, grupos1, grupos2;
-    DWORD pid1, pid2;
-	int gC1, gA1, gC2, gA2;
-    
-    PeekMessage(&msg1, NULL, 1000, 1050, PM_REMOVE);
-
-    semZ = OpenSemaphore(SEMAPHORE_ALL_ACCESS, FALSE, "SZ");
-    if (semZ == NULL) {
-        exit(1);
+        }
     }
 
-	cambios = OpenSemaphore(SEMAPHORE_ALL_ACCESS, FALSE, "cambios");
-    if (cambios == NULL) {
-		CloseHandle(semZ);
-		exit(1);
-    }
-
-    ReleaseSemaphore(semZ, 1, NULL);
-
-	for (int i = 0; i < 32; i++) {
-        GetMessage(&msg1, NULL, 1050, 1050);
-	}
-
-	while (TRUE) {
-		//WaitMessage();
-		if (PeekMessage(&msg1, NULL, 1000, 1000, PM_REMOVE)) {
-            if (semZ != NULL) {
-				CloseHandle(semZ);
-			}
-            if (cambios != NULL) {
-				CloseHandle(cambios);
-            }
-            exit(0);
-		}
-		else if (PeekMessage(&msg1, NULL, 1010, 1050, PM_REMOVE)) {
-			
-            grupos1 = msg1.wParam;
-			pid1 = msg1.lParam;
-            gA1 = grupos1 / 10;
-            gC1 = grupos1 % 10;
-			tipo1 = 1000 + gC1 * 10 + gA1;
-			if (PeekMessage(&msg2, NULL, tipo1, tipo1, PM_REMOVE)) {
-                WaitForSingleObject(cambios, INFINITE);
-                grupos2 = msg2.wParam;
-                pid2 = msg2.lParam;
-                gA2 = grupos2 / 10;
-                gC2 = grupos2 % 10;
-
-				tipo1 = 1100 + gC1 * 10 + gA1;
-				tipo2 = 1100 + gC2 * 10 + gA2;
-
-				PostThreadMessage(pid1, tipo1, WPARAM(pid2), LPARAM(1));
-				PostThreadMessage(pid2, tipo2, WPARAM(pid1), LPARAM(1));
-
-				for (int i = 0; i < 2; i++) {
-					GetMessage(&msg1, NULL, 1050, 1050);
-				}
-				ReleaseSemaphore(cambios, 1, NULL);
-                continue;
-			}
-            else {
-				gA1 = grupos1 / 10;
-				gC1 = grupos1 % 10;
-				tipo1 = 1100 + gC1*10 + gA1;
-                PostThreadMessage(pid1, tipo1, NULL, LPARAM(0));
-            }
-		}
-	}
+    return 0;
 }
 
 void fin() {
@@ -640,9 +667,9 @@ void fin() {
     if (glob.SHijos != NULL) {
         CloseHandle(glob.SHijos);
     }
-	if (glob.cambios != NULL) {
-		CloseHandle(glob.cambios);
-	}
+    if (glob.cambios != NULL) {
+        CloseHandle(glob.cambios);
+    }
 
     if (glob.Z != NULL) {
         CloseHandle(glob.Z);
@@ -651,8 +678,6 @@ void fin() {
     for (int i = 0; i < 32; i++) {
         if (glob.alumnos[i] != NULL) {
             CloseHandle(glob.alumnos[i]);
-        }   
+        }
     }
-    
-	printf("FIN\r\n");
 }
