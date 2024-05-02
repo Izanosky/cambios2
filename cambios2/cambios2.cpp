@@ -268,7 +268,7 @@ DWORD WINAPI Zacarias(LPVOID param) {
                     ReleaseSemaphore(cambios, 1, NULL);
                     break;
                 case WAIT_TIMEOUT:
-                    if (PeekMessage(&msg1, NULL, 1000, 1000, PM_REMOVE)) {
+                    if (GetMessage(&msg1, NULL, 1000, 1000)) {
                         if (semZ != NULL) {
                             CloseHandle(semZ);
                         }
