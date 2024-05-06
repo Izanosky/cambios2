@@ -105,13 +105,13 @@ int main(int argc, char* argv[]) {
         }
 
         //CREAMOS LA MEMORIA COMPARTIDA
-        glob.mem = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(char) * 80 + sizeof(int) * 3 + sizeof(DWORD), "memoria");
+        glob.mem = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(char) * 80 + sizeof(long)*2 + sizeof(int) + sizeof(DWORD), "memoria");
         if (glob.mem == NULL) {
             fin();
             exit(1);
         }
 
-        glob.refM = (LPCH)MapViewOfFile(glob.mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3 + sizeof(DWORD));
+        glob.refM = (LPCH)MapViewOfFile(glob.mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(long) * 2 + sizeof(int) + sizeof(DWORD));
         if (glob.refM == NULL) {
             fin();
             exit(1);
@@ -175,7 +175,7 @@ int main(int argc, char* argv[]) {
         }
 
 		//COPIAMOS LA VELOCIDAD A LA MEMORIA COMPARTIDA Y PONEMOS EL CONTADOR A 0
-        *((int*)&(glob.refM[84])) = 0;
+        *((long*)&(glob.refM[84])) = 0;
         *((int*)&(glob.refM[88])) = vel;
         refrescar();
 
@@ -326,7 +326,8 @@ DWORD WINAPI Zacarias(LPVOID param) {
 
 DWORD WINAPI Alumnos(LPVOID param) {
     DWORD ZID;
-    int posi = (int)param, val, velH, grupoC, tipo, aux;
+    int posi = (int)param, val, velH, grupoC, tipo;
+    long aux;
     char identificador, grupoA, vacio = ' ';
     HANDLE SHijos = NULL, mem = NULL, mtxLib = NULL;
     LPCH refM = NULL;
@@ -356,7 +357,7 @@ DWORD WINAPI Alumnos(LPVOID param) {
         }
         exit(1);
     }
-    refM = (LPCH)MapViewOfFile(mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(int) * 3 + sizeof(DWORD));
+    refM = (LPCH)MapViewOfFile(mem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(char) * 80 + sizeof(long) * 2 + sizeof(int) + sizeof(DWORD));
     if (refM == NULL) {
         if (lib != NULL) {
             FreeLibrary(lib);
@@ -618,9 +619,9 @@ DWORD WINAPI Alumnos(LPVOID param) {
 
                                 incrementarCuenta();
 
-                                aux = *((int*)&(glob.refM[84]));
+                                aux = *((long*)&(glob.refM[84]));
                                 aux += 1;
-                                *((int*)&(glob.refM[84])) = aux;
+                                *((long*)&(glob.refM[84])) = aux;
 
                                 refrescar();
                                 break;
