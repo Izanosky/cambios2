@@ -29,6 +29,32 @@ global glob;
 
 void fin();
 
+BOOL WINAPI CtrlHandler(DWORD fdwCtrlType) {
+    LARGE_INTEGER liDueTime;
+    liDueTime.QuadPart = -0LL;
+    
+    switch (fdwCtrlType) {
+    case CTRL_C_EVENT:
+        //REESTABLECEMOS LA ALARMA PORQUE SI NO DA ERROR AL INTENTAR ACABAR CON LOS HILOS Y LOS HANDLE
+        if (!SetWaitableTimer(glob.alarma, &liDueTime, 1000, NULL, NULL, FALSE)) {
+            printf("Error al establecer la alarma\r\n");
+            fflush(stdout);
+            exit(1);
+        }
+        return TRUE;
+    case CTRL_CLOSE_EVENT:
+        //LO MISMO QUE ANTES, ¿¿¿¿POR SI SE CIERRA LA VENTANA????
+        if (!SetWaitableTimer(glob.alarma, &liDueTime, 1000, NULL, NULL, FALSE)) {
+			printf("Error al establecer la alarma\r\n");
+			fflush(stdout);
+			exit(1);
+		}
+		return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 int main(int argc, char* argv[]) {
     int vel, valor, cont = 0;
     LARGE_INTEGER time;
@@ -42,6 +68,13 @@ int main(int argc, char* argv[]) {
     glob.SHijos = NULL;
 
     if (argc == 2) {
+
+        if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
+            printf("Error al establecer el controlador de eventos\r\n");
+            fflush(stdout);
+            return 1;
+        }
+
         //MECANISMOS DE SINCRONIZACION
         glob.mtxLib = CreateMutex(NULL, FALSE, "mtxLib");
         if (glob.mtxLib == NULL) {
